@@ -53,7 +53,7 @@ The climate entity will show:
 
 **CO2 sensors unavailable**: The CO2 module may not be responding. Check if `http://[IP]/co2.json` is accessible with your browser.
 
-## API Endpoints Used
+## Endpoints Used
 
 - `http://[IP]/index.xml` - Main thermostat data (polled every 30 seconds)
 - `http://[IP]/co2.json` - CO2 sensor data (polled every 30 seconds)
