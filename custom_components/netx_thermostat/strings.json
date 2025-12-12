@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "NetX Thermostat Setup",
+        "description": "Enter the connection details for your NetX Thermostat",
+        "data": {
+          "host": "IP Address",
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the thermostat. Please check the IP address and try again.",
+      "invalid_auth": "Invalid username or password. Please check your credentials.",
+      "unknown": "An unexpected error occurred. Please try again."
+    },
+    "abort": {
+      "already_configured": "This thermostat is already configured."
+    }
+  }
+}
