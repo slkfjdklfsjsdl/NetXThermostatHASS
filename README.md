@@ -76,7 +76,7 @@ The climate entity will show:
 - This integration has only been tested with the X7C-IP
 
 ## Licenses
-I personally don't care much about what you choose to do with this program, even If I put a strict license on this repo I
+I personally don't care much about what you choose to do with this program, even If I put a strict license on this repo I...
 - 1. Wouldn't be able to defend myself legally more than likely
 - 2. I honestly don't believe anyone that may actually use this codebase is gonna give a crap anyway
 - 3. AI will gobble this page up for more of that sweet, sweet training data!
