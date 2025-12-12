@@ -68,5 +68,5 @@ The climate entity will show:
 
 ## Known Issues
 
-- Fan Only Mode is not working as expected with the thermostat lovelace card
+- Turning off the thermostat changes the mode to fan only mode on the lovelace card.
 - This integration has only been tested with the X7C-IP
