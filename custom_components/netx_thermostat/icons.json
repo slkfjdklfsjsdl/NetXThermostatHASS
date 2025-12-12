@@ -1,0 +1,20 @@
+{
+  "entity": {
+    "climate": {
+      "netx": {
+        "default": "mdi:thermostat"
+      }
+    },
+    "sensor": {
+      "co2_level": {
+        "default": "mdi:molecule-co2"
+      },
+      "co2_peak_level": {
+        "default": "mdi:chart-line"
+      },
+      "co2_alert_level": {
+        "default": "mdi:alert-circle"
+      }
+    }
+  }
+}
