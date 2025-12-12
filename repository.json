@@ -1,0 +1,11 @@
+{
+   "repository": "https://github.com/slkfjdklfsjsdl/NetXThermostatHASS",
+   "name": "NetX Thermostat",
+   "description": "An unofficial Home Assistant integration to allow NetX Thermostats to work with Home Assistant",
+   "author": "slkfjdklfsjsdl",
+   "topics": ["home-assistant", "thermostat"]
+   "labels": ["integration", "custom_component"],
+   "homepage": "https://github.com/slkfjdklfsjsdl/NetXThermostatHASS",
+   "license": "Apache-2.0",
+   "languages": ["Python"]
+}
