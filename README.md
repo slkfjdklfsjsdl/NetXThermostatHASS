@@ -87,12 +87,12 @@ The climate entity will show:
 
 ### Sensor Categories
 
-**CO2 Sensors** - Monitor air quality
-**Temperature Sensors** - Indoor, outdoor, and setpoint limits
-**Humidity Sensors** - Indoor and outdoor humidity
-**Schedule Sensors** - Programming and schedule status
-**Raw Sensors** - Raw values from all connected sensors
-**Restart Button** - Restart the thermostat from Home Assistant
+- **CO2 Sensors** - Monitor air quality
+- **Temperature Sensors** - Indoor, outdoor, and setpoint limits
+- **Humidity Sensors** - Indoor and outdoor humidity
+- **Schedule Sensors** - Programming and schedule status
+- **Raw Sensors** - Raw values from all connected sensors
+- **Restart Button** - Restart the thermostat from Home Assistant
 
 ### Unavailable Sensors
 
