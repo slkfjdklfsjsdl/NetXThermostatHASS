@@ -65,7 +65,7 @@ The climate entity will show:
 - Manual changes made at the thermostat will be reflected in Home Assistant
 - Fan mode "AUTO" means the fan is off and will run only when heating/cooling
 - Fan mode "ON" means the fan is continuously running
-- These thermostats aren't typically sold to customers and are quite pricy.
+- These thermostats aren't typically sold to customers and are quite pricy. (~$600)
 - The devices from https://networkthermostat.com are the only ones I am aware of that have local control and ethernet
 ## Known Issues
 
