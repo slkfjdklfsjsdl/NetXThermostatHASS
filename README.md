@@ -1,6 +1,6 @@
 # NetX Thermostat Integration for Home Assistant
 
-This custom integration allows you to control and monitor a NetX Thermostat from https://networkthermostat.com in Home Assistant.
+This unofficial custom integration allows you to control and monitor a NetX Thermostat from https://networkthermostat.com in Home Assistant.
 
 ## Features
 
