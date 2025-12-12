@@ -143,6 +143,24 @@ class NetXClimate(CoordinatorEntity, ClimateEntity):
         self._password = config_entry.data[CONF_PASSWORD]
 
     @property
+    def hvac_action(self):
+        """Return the current running hvac operation."""
+        sysstat = self.coordinator.data.get("sysstat", "IDLE")
+        fan = self.coordinator.data.get("curfan", "AUTO")
+        
+        # Check system status for active heating/cooling
+        if "HEAT" in sysstat:
+            return HVACAction.HEATING
+        elif "COOL" in sysstat:
+            return HVACAction.COOLING
+        elif fan == "ON" and sysstat == "IDLE":
+            return HVACAction.FAN
+        elif sysstat == "IDLE":
+            return HVACAction.IDLE
+        else:
+            return HVACAction.IDLE
+
+    @property
     def current_temperature(self):
         """Return the current temperature."""
         temp = self.coordinator.data.get("curtemp")
@@ -198,6 +216,11 @@ class NetXClimate(CoordinatorEntity, ClimateEntity):
     def extra_state_attributes(self):
         """Return extra state attributes."""
         attrs = {}
+        
+        # Add system status
+        sysstat = self.coordinator.data.get("sysstat")
+        if sysstat:
+            attrs["system_status"] = sysstat
         
         # Add CO2 data if available
         if self.coordinator.data.get("co2_level"):
