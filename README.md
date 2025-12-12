@@ -122,6 +122,8 @@ Sensors that report "--" in the thermostat data will show as "unavailable" in Ho
 - These thermostats aren't typically sold to customers and are quite pricy for the ones with ethernet. (~$600).  Places like [Controls Depot](https://controlsdepot.com) seem to sell direct to consumer however I have not personally confirmed this.
 - The devices from [NetworkThermostat](https://networkthermostat.com) are the only ones I am aware of that have local control and **ETHERNET**
 - This integration has only been tested with the X7C-IP
+- The schedules tab on the device is unlikely to be added to this integration as you should probably use Home Assistant's native automations for that.
+- I have not tested other products from NetworkThermostat like the temperature sensors they offer to get a median temperature, so while they *should* would your milage my vary
 
 ## Licenses
 I personally don't care much about what you choose to do with this program, even If I put a strict license on this repo I...
