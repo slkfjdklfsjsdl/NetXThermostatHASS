@@ -8,13 +8,47 @@ This unofficial custom integration allows you to control and monitor a [NetworkT
   - View current temperature
   - View current humidity
   - Set heating and cooling setpoints (64-86°F)
-  - Switch between HEAT, COOL, and OFF modes
+  - Switch between HEAT, COOL, FAN ONLY, and OFF modes
   - View fan status (AUTO/ON)
+  - Real-time HVAC action status (actively heating, cooling, fan, or idle)
 
-- **CO2 Monitoring** (via separate sensors)
-  - Current CO2 level
-  - Peak CO2 level
-  - CO2 alert level
+- **Restart Button**
+  - Remotely restart/reboot the thermostat
+
+- **CO2 Monitoring Sensors**
+  - CO2 Level (ppm)
+  - CO2 Peak Level (ppm)
+  - CO2 Alert Level (ppm)
+  - CO2 Type
+  - CO2 Valid Status
+  - CO2 In Alert Status
+  - CO2 Peak Reset Mode
+  - CO2 Display Mode
+  - CO2 Relay High Status
+  - CO2 Relay Failure Status
+
+- **Temperature Sensors**
+  - Outdoor Temperature
+  - Occupied/Unoccupied Cool/Heat Setpoint Limits
+
+- **Humidity Sensors**
+  - Indoor / Outdoor Humidity
+
+- **Schedule & Program Sensors**
+  - Manual Program Status
+  - Current Schedule
+  - Schedule Status
+  - Override Status
+
+- **System Status Sensors**
+  - System Adapt Status
+  - Humidity Sensor Status
+  - Lock Status
+  - ind0, ind1, ind2
+
+- **Additional Sensors**
+  - 6 configurable sensor inputs (sensor0-5)
+  - X7 system sensors (no idea what these are to be honest)
 
 ## Installation
 
@@ -34,19 +68,35 @@ This unofficial custom integration allows you to control and monitor a [NetworkT
    - **IP Address**: The local IP of your thermostat (e.g., 192.168.1.2)
    - **Username**: Your thermostat username
    - **Password**: Your thermostat password
+5. **Step 2**: After successful connection, give your thermostat a custom name (e.g., "Living Room Thermostat")
 
 ## Usage
 
 Once configured, you'll get:
-- A climate entity for thermostat control
-- Three sensor entities for CO2 monitoring
+- **1 Climate entity** for thermostat control
+- **1 Button entity** for restarting the thermostat
+- **70+ sensor entities** for comprehensive monitoring
 
 The climate entity will show:
 - Current temperature and humidity
 - Heating and cooling setpoints
-- Current HVAC mode
+- Current HVAC mode (Heat/Cool/Fan Only/Off)
+- Current HVAC action (Heating/Cooling/Fan/Idle)
 - Fan mode in attributes
 - CO2 data in attributes
+
+### Sensor Categories
+
+**CO2 Sensors** - Monitor air quality
+**Temperature Sensors** - Indoor, outdoor, and setpoint limits
+**Humidity Sensors** - Indoor and outdoor humidity
+**Schedule Sensors** - Programming and schedule status
+**Raw Sensors** - Raw values from all connected sensors
+**Restart Button** - Restart the thermostat from Home Assistant
+
+### Unavailable Sensors
+
+Sensors that report "--" in the thermostat data will show as "unavailable" in Home Assistant. This is normal for sensors that are not configured or connected.
 
 ## Troubleshooting
 
@@ -56,11 +106,12 @@ The climate entity will show:
 
 **CO2 sensors unavailable**: The CO2 module may not be responding. Check if `http://[IP]/co2.json` is accessible with your browser.
 
-## Endpoints Used
+## API Endpoints Used
 
 - `http://[IP]/index.xml` - Main thermostat data (polled every 30 seconds)
 - `http://[IP]/co2.json` - CO2 sensor data (polled every 30 seconds)
 - `http://[IP]/index.htm` - Control endpoint (POST requests)
+- `http://[IP]/reboot.htm` - Restart/reboot endpoint (GET request)
 
 ## Notes
 
