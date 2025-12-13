@@ -7,7 +7,7 @@ This unofficial custom integration allows you to control and monitor a [NetworkT
 - **Climate Control**
   - View current temperature
   - View current humidity
-  - Set heating and cooling setpoints (64-86°F)
+  - Set heating and cooling setpoints (60-88°F)
   - Switch between HEAT, COOL, FAN ONLY, and OFF modes
   - View fan status (AUTO/ON)
   - Real-time HVAC action status (actively heating, cooling, fan, or idle)
@@ -55,8 +55,8 @@ Sensors that report "--" in the thermostat data will show as "unavailable" in Ho
 
 ## API Endpoints Used
 
-- `http://[IP]/index.xml` - Main thermostat data (polled every 30 seconds)
-- `http://[IP]/co2.json` - CO2 sensor data (polled every 30 seconds)
+- `http://[IP]/index.xml` - Main thermostat data (polled every 10 seconds)
+- `http://[IP]/co2.json` - CO2 sensor data (polled every 10 seconds)
 - `http://[IP]/index.htm` - Control endpoint (POST requests)
 - `http://[IP]/reboot.htm` - Restart/reboot endpoint (GET request)
 
