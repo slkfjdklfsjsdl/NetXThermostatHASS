@@ -323,6 +323,11 @@ class NetXClimate(CoordinatorEntity, ClimateEntity):
 
     async def _set_fan_only(self):
         """Set fan-only mode."""
+        # First turn off heating/cooling mode
+        await self._set_mode("OFF")
+        await asyncio.sleep(0.5)  # Small delay between commands
+        
+        # Then turn on the fan
         url = f"http://{self._host}/index.htm"
         data = {"fan": "ON", "update": "Update"}
         auth = aiohttp.BasicAuth(self._username, self._password)
