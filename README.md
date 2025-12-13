@@ -68,22 +68,7 @@ This unofficial custom integration allows you to control and monitor a [NetworkT
    - **IP Address**: The local IP of your thermostat (e.g., 192.168.1.2)
    - **Username**: Your thermostat username
    - **Password**: Your thermostat password
-5. **Step 2**: After successful connection, give your thermostat a custom name (e.g., "Living Room Thermostat")
-
-## Usage
-
-Once configured, you'll get:
-- **1 Climate entity** for thermostat control
-- **1 Button entity** for restarting the thermostat
-- **70+ sensor entities** for comprehensive monitoring
-
-The climate entity will show:
-- Current temperature and humidity
-- Heating and cooling setpoints
-- Current HVAC mode (Heat/Cool/Fan Only/Off)
-- Current HVAC action (Heating/Cooling/Fan/Idle)
-- Fan mode in attributes
-- CO2 data in attributes
+5. After successful connection, give your thermostat a custom name (e.g., "Living Room Thermostat")
 
 ### Sensor Categories
 
