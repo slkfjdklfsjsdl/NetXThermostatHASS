@@ -20,6 +20,11 @@
       "restart": {
         "default": "mdi:restart"
       }
+    },
+    "switch": {
+      "fan": {
+        "default": "mdi:fan"
+      }
     }
   }
 }
