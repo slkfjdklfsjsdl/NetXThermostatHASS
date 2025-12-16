@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "netx_thermostat"
-PLATFORMS = ["climate", "sensor", "button"]
+PLATFORMS = ["climate", "sensor", "button", "switch"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
