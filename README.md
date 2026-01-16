@@ -5,12 +5,10 @@ This unofficial custom integration allows you to control and monitor a [NetworkT
 ## Features
 
 - **Climate Control**
-  - View current temperature
-  - View current humidity
-  - Set heating and cooling setpoints (60-88°F)
-  - Switch between HEAT, COOL, FAN ONLY, and OFF modes
-  - View fan status (AUTO/ON)
-  - Real-time HVAC action status (actively heating, cooling, fan, or idle)
+  - Set heating and cooling setpoints (35-90°F)
+  - Switch between HEAT, COOL, FAN ONLY, AUTO, and OFF mode
+  - View and control fan status (AUTO/ON)
+  - Humidification/Dehumidification control
 
 ## Installation
 
@@ -40,6 +38,7 @@ This unofficial custom integration allows you to control and monitor a [NetworkT
 - **Schedule Sensors** - Programming and schedule status
 - **Raw Sensors** - Raw values from all connected sensors
 - **Restart Button** - Restart the thermostat from Home Assistant
+- **Humidity Control** - Control hum/dehum and variance 
 
 ### Unavailable Sensors
 
@@ -53,21 +52,25 @@ Sensors that report "--" in the thermostat data will show as "unavailable" in Ho
 
 **CO2 sensors unavailable**: The CO2 module may not be responding. Check if `http://[IP]/co2.json` is accessible with your browser.
 
-## API Endpoints Used
+## HTTP Endpoints Used
 
 - `http://[IP]/index.xml` - Main thermostat data (polled every 10 seconds)
 - `http://[IP]/co2.json` - CO2 sensor data (polled every 10 seconds)
 - `http://[IP]/index.htm` - Control endpoint (POST requests)
 - `http://[IP]/reboot.htm` - Restart/reboot endpoint (GET request)
+- `http://[IP]/schedule.htm` - Get schedules on thermostat directly to see usage (GET/POST, plans to integration schedules in the future)
+- `http://[IP]/confighumidity.htm` - Humidity control (POST requests) 
 
 ## Notes
 
-- The integration polls the thermostat every 30 seconds for updates
+- The integration polls the thermostat every 10 seconds for updates
 - These thermostats aren't typically sold to customers and are quite pricy for the ones with ethernet. (~$600).  Places like [Controls Depot](https://controlsdepot.com) seem to sell direct to consumer however I have not personally confirmed this.
 - The devices from [NetworkThermostat](https://networkthermostat.com) are the only ones I am aware of that have local control and **ETHERNET**
 - This integration has only been tested with the X7C-IP
-- The schedules tab on the device is unlikely to be added to this integration as you should probably use Home Assistant's native automations for that.
 - I have not tested other products from NetworkThermostat like the temperature sensors they offer to get a median temperature, so while they *should* work your milage my vary
 
 ## Support & Warranty
 This repo is not endored or affiliated with NetworkThermostat, NetX or any other party in thereof.  This repo's primary goal is to expand the (albeit borderline nonexistant) userbases' options on how they use their products and what they communicate with.  This repo comes with little support and zero warranty.  You are solely responsible for your usage of the code used in this repository and I take zero responsibility for any damage as a result of anyone using this codebase.
+
+## To-Do
+Use the official API that is used by the Control4 and RTI integration
