@@ -3,22 +3,82 @@
     "step": {
       "user": {
         "title": "NetX Thermostat Setup",
-        "description": "Enter the connection details for your NetX Thermostat",
+        "description": "Enter your NetX Thermostat connection details.",
         "data": {
           "host": "IP Address",
           "username": "Username",
-          "password": "Password"
+          "password": "Password",
+          "device_name": "Device Name"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to the thermostat. Please check the IP address and try again.",
-      "invalid_auth": "Invalid username or password. Please check your credentials.",
-      "unknown": "An unexpected error occurred. Please try again."
+      "cannot_connect": "Unable to connect to the thermostat. Please check the IP address and credentials."
     },
     "abort": {
       "already_configured": "This thermostat is already configured."
     }
   },
-  "title": "NetX Thermostat"
+  "entity": {
+    "climate": {
+      "netx_thermostat": {
+        "name": "Thermostat"
+      }
+    },
+    "sensor": {
+      "co2_level": {
+        "name": "CO2 Level"
+      },
+      "outdoor": {
+        "name": "Outdoor Temperature"
+      },
+      "schedule_status": {
+        "name": "Schedule Status"
+      },
+      "control_mode": {
+        "name": "Control Mode"
+      },
+      "todays_schedule": {
+        "name": "Today's Schedule"
+      }
+    },
+    "switch": {
+      "fan": {
+        "name": "Fan"
+      },
+      "dehum_independent": {
+        "name": "Dehumidify Independent Mode"
+      },
+      "hum_independent": {
+        "name": "Humidify Independent Mode"
+      },
+      "aux_relay": {
+        "name": "Aux Relay"
+      }
+    },
+    "select": {
+      "humidity_relay_mode": {
+        "name": "Humidity Relay Mode"
+      }
+    },
+    "number": {
+      "dehum_setpoint": {
+        "name": "Dehumidify Above"
+      },
+      "dehum_variance": {
+        "name": "Dehumidify Variance"
+      },
+      "hum_setpoint": {
+        "name": "Humidify Below"
+      },
+      "hum_variance": {
+        "name": "Humidify Variance"
+      }
+    },
+    "button": {
+      "restart": {
+        "name": "Restart"
+      }
+    }
+  }
 }

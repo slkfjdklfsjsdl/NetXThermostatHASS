@@ -1,14 +1,13 @@
 """Button platform for NetX Thermostat integration."""
 import logging
-import aiohttp
 
 from homeassistant.components.button import ButtonEntity
-from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 
-from .const import DOMAIN
+from .const import DOMAIN, ENDPOINT_REBOOT
+from .coordinator import NetXDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -19,12 +18,11 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the NetX Thermostat button platform."""
-    host = config_entry.data[CONF_HOST]
-    username = config_entry.data[CONF_USERNAME]
-    password = config_entry.data[CONF_PASSWORD]
+    data = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = data["coordinator"]
 
     buttons = [
-        NetXRebootButton(config_entry, host, username, password),
+        NetXRebootButton(coordinator, config_entry),
     ]
 
     async_add_entities(buttons)
@@ -39,15 +37,11 @@ class NetXRebootButton(ButtonEntity):
 
     def __init__(
         self,
+        coordinator: NetXDataUpdateCoordinator,
         config_entry: ConfigEntry,
-        host: str,
-        username: str,
-        password: str,
-    ):
+    ) -> None:
         """Initialize the button."""
-        self._host = host
-        self._username = username
-        self._password = password
+        self._coordinator = coordinator
         self._attr_unique_id = f"{config_entry.entry_id}_restart"
         
         device_name = config_entry.data.get("device_name", "NetX Thermostat")
@@ -61,17 +55,19 @@ class NetXRebootButton(ButtonEntity):
 
     async def async_press(self) -> None:
         """Handle the button press - restart the thermostat."""
-        url = f"http://{self._host}/reboot.htm"
-        auth = aiohttp.BasicAuth(self._username, self._password)
-        
+        # Use GET request for reboot endpoint
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url, auth=auth, timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    if response.status == 200:
-                        _LOGGER.info("Thermostat restart command sent successfully")
-                    else:
-                        _LOGGER.error("Failed to restart thermostat: %s", response.status)
-        except aiohttp.ClientError as err:
+            session = await self._coordinator._get_session()
+            url = f"http://{self._coordinator.host}{ENDPOINT_REBOOT}"
+            
+            async with session.get(
+                url, auth=self._coordinator.auth
+            ) as response:
+                if response.status == 200:
+                    _LOGGER.info("Thermostat restart command sent successfully")
+                else:
+                    _LOGGER.error(
+                        "Failed to restart thermostat: %s", response.status
+                    )
+        except Exception as err:
             _LOGGER.error("Error sending restart command: %s", err)

@@ -1,126 +1,82 @@
 """Config flow for NetX Thermostat integration."""
 import logging
-import voluptuous as vol
 import aiohttp
-import xml.etree.ElementTree as ET
+import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD, CONF_NAME
+from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.data_entry_flow import FlowResult
 
-from .const import DOMAIN
+from .const import DOMAIN, ENDPOINT_INDEX_XML
 
 _LOGGER = logging.getLogger(__name__)
 
-DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_HOST): str,
-        vol.Required(CONF_USERNAME): str,
-        vol.Required(CONF_PASSWORD): str,
-    }
-)
 
-NAME_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_NAME, default="NetX Thermostat"): str,
-    }
-)
-
-
-async def validate_input(hass: HomeAssistant, data: dict):
+async def validate_connection(
+    hass: HomeAssistant, 
+    host: str, 
+    username: str, 
+    password: str
+) -> bool:
     """Validate the user input allows us to connect."""
-    host = data[CONF_HOST]
-    username = data[CONF_USERNAME]
-    password = data[CONF_PASSWORD]
-
-    url = f"http://{host}/index.xml"
-    auth = aiohttp.BasicAuth(username, password)
-
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, auth=auth, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status == 401:
-                    raise InvalidAuth
-                if response.status != 200:
-                    raise CannotConnect
-                
-                text = await response.text()
-                root = ET.fromstring(text)
-                isvalid = root.find("isvalid")
-                
-                if isvalid is None or isvalid.text != "1":
-                    raise InvalidAuth
-                    
-    except aiohttp.ClientError:
-        raise CannotConnect
-    except ET.ParseError:
-        raise CannotConnect
-
-    return {"title": f"NetX Thermostat ({host})"}
+        auth = aiohttp.BasicAuth(username, password)
+        timeout = aiohttp.ClientTimeout(total=10)
+        
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            url = f"http://{host}{ENDPOINT_INDEX_XML}"
+            async with session.get(url, auth=auth) as response:
+                return response.status == 200
+    except Exception as err:
+        _LOGGER.error("Error connecting to thermostat: %s", err)
+        return False
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class NetXThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for NetX Thermostat."""
 
     VERSION = 1
 
-    def __init__(self):
-        """Initialize the config flow."""
-        self._host = None
-        self._username = None
-        self._password = None
-
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self, user_input: dict | None = None
+    ) -> FlowResult:
         """Handle the initial step."""
         errors = {}
 
         if user_input is not None:
-            try:
-                info = await validate_input(self.hass, user_input)
-                # Store credentials for next step
-                self._host = user_input[CONF_HOST]
-                self._username = user_input[CONF_USERNAME]
-                self._password = user_input[CONF_PASSWORD]
-                # Move to name step
-                return await self.async_step_name()
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except InvalidAuth:
-                errors["base"] = "invalid_auth"
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-
-        return self.async_show_form(
-            step_id="user", data_schema=DATA_SCHEMA, errors=errors
-        )
-
-    async def async_step_name(self, user_input=None):
-        """Handle the device naming step."""
-        if user_input is not None:
-            # Combine all data
-            data = {
-                CONF_HOST: self._host,
-                CONF_USERNAME: self._username,
-                CONF_PASSWORD: self._password,
-                "device_name": user_input[CONF_NAME],
-            }
-            return self.async_create_entry(
-                title=user_input[CONF_NAME],
-                data=data
+            # Validate connection
+            valid = await validate_connection(
+                self.hass,
+                user_input[CONF_HOST],
+                user_input[CONF_USERNAME],
+                user_input[CONF_PASSWORD],
             )
 
-        return self.async_show_form(
-            step_id="name",
-            data_schema=NAME_SCHEMA,
-            description_placeholders={"host": self._host}
+            if valid:
+                # Create unique ID from host
+                await self.async_set_unique_id(user_input[CONF_HOST])
+                self._abort_if_unique_id_configured()
+
+                return self.async_create_entry(
+                    title=user_input.get("device_name", "NetX Thermostat"),
+                    data=user_input,
+                )
+            else:
+                errors["base"] = "cannot_connect"
+
+        # Show form
+        data_schema = vol.Schema(
+            {
+                vol.Required(CONF_HOST): str,
+                vol.Required(CONF_USERNAME): str,
+                vol.Required(CONF_PASSWORD): str,
+                vol.Optional("device_name", default="NetX Thermostat"): str,
+            }
         )
 
-
-class CannotConnect(HomeAssistantError):
-    """Error to indicate we cannot connect."""
-
-
-class InvalidAuth(HomeAssistantError):
-    """Error to indicate there is invalid auth."""
+        return self.async_show_form(
+            step_id="user",
+            data_schema=data_schema,
+            errors=errors,
+        )
