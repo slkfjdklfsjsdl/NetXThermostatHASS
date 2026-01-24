@@ -1,10 +1,11 @@
-"""NetX Thermostat Client."""
+"""NetX Thermostat TCP API Client with HTTP sensor support."""
 import asyncio
 import hashlib
 import base64
 import logging
+import re
+import aiohttp
 from dataclasses import dataclass
-from typing import Any
 
 from .const import (
     DEFAULT_PORT,
@@ -13,7 +14,6 @@ from .const import (
     CMD_LOGIN,
     CMD_GET_TEMP_SCALE,
     CMD_GET_ALL_STATES,
-    CMD_GET_HUMIDITY,
     CMD_GET_OPERATION_MODE,
     CMD_GET_RELAY_MODE,
     CMD_GET_HUMIDIFICATION,
@@ -27,14 +27,12 @@ from .const import (
     CMD_SET_COOL_SCHEDULE,
     CMD_SET_HEAT_MANUAL,
     CMD_SET_HEAT_SCHEDULE,
-    CMD_SET_TEMP_SCALE,
     CMD_SET_RELAY_MODE,
     CMD_SET_HUMIDIFICATION,
     CMD_SET_DEHUMIDIFICATION,
     RESP_LOGIN_OK,
     RESP_TEMP_SCALE,
     RESP_ALL_STATES,
-    RESP_HUMIDITY,
     RESP_OPERATION_MODE,
     RESP_RELAY_MODE,
     RESP_HUMIDIFICATION,
@@ -53,36 +51,45 @@ class NetXThermostatState:
     # Basic state from RAS1
     indoor_temp: float | None = None
     outdoor_temp: float | None = None
-    hvac_mode: str | None = None  # OFF, HEAT, COOL, AUTO
-    fan_mode: str | None = None  # AUTO, ON
+    hvac_mode: str | None = None
+    fan_mode: str | None = None
     override_active: bool = False
     recovery_active: bool = False
     cool_setpoint: int | None = None
     heat_setpoint: int | None = None
-    operating_status: str | None = None  # What's actually running
+    operating_status: str | None = None
     stage: int | None = None
     event: str | None = None
     
+    # Derived state
+    is_idle: bool = True  # True when stage=0
+    
     # From other commands
-    humidity: int | None = None  # From RRHS1
-    temp_scale: str = "F"  # From RTS1
-    is_manual_mode: bool = True  # From RNS1
-    operation_mode: str = "Manual"  # Human readable
+    temp_scale: str = "F"
+    is_manual_mode: bool = True
+    operation_mode: str = "Manual"
     
-    # Humidity control from RMRF1, RMHS1, RMDHS1
-    relay1_mode: str | None = None  # OFF, HUM, DEHUM
-    relay2_mode: str | None = None  # OFF, HUM, DEHUM
-    relay_state: str | None = None  # From RRS1
+    # Humidity relay
+    relay1_mode: str | None = None
+    relay2_mode: str | None = None
+    relay_state: str | None = None
     
-    # Humidification settings (from RMHS1: WH,50,5)
-    hum_control_mode: str | None = None  # WH (With Heating) or IH (Independent of Heating)
-    hum_setpoint: int | None = None  # Target humidity %
-    hum_variance: int | None = None  # +/- variance %
+    # Humidification settings
+    hum_control_mode: str | None = None
+    hum_setpoint: int | None = None
+    hum_variance: int | None = None
     
-    # Dehumidification settings (from RMDHS1: IC,55,5)
-    dehum_control_mode: str | None = None  # WC (With Cooling) or IC (Independent of Cooling)
-    dehum_setpoint: int | None = None  # Target humidity %
-    dehum_variance: int | None = None  # +/- variance %
+    # Dehumidification settings
+    dehum_control_mode: str | None = None
+    dehum_setpoint: int | None = None
+    dehum_variance: int | None = None
+    
+    # HTTP-sourced sensor data
+    humidity: int | None = None  # From index.xml
+    co2_level: int | None = None  # From co2.json
+    co2_peak_level: int | None = None  # Peak CO2 from co2.json
+    co2_alert_level: int | None = None  # Alert threshold
+    co2_in_alert: bool = False  # Currently in alert state
     
     # Connection status
     connected: bool = False
@@ -90,7 +97,7 @@ class NetXThermostatState:
 
 
 class NetXThermostatAPI:
-    """TCP API client for NetX Thermostat."""
+    """TCP API client for NetX Thermostat with HTTP sensor support."""
 
     def __init__(
         self,
@@ -105,15 +112,20 @@ class NetXThermostatAPI:
         self.username = username
         self.password = password
         
+        # TCP connection
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
         self._authenticated = False
         
+        # HTTP session for sensor data
+        self._http_session: aiohttp.ClientSession | None = None
+        self._http_auth = aiohttp.BasicAuth(username, password)
+        
         self.state = NetXThermostatState()
 
     def _generate_auth_hash(self) -> str:
-        """Generate the authentication hash (SHA256 of username:password, base64 encoded)."""
+        """Generate the authentication hash."""
         auth_string = f"{self.username}:{self.password}"
         sha256_hash = hashlib.sha256(auth_string.encode()).digest()
         return base64.b64encode(sha256_hash).decode()
@@ -122,21 +134,17 @@ class NetXThermostatAPI:
         """Connect and authenticate with the thermostat."""
         try:
             async with self._lock:
-                # Close existing connection if any
                 await self._close_connection_locked()
                 
-                # Open new connection
                 _LOGGER.debug("Connecting to %s:%s", self.host, self.port)
                 self._reader, self._writer = await asyncio.wait_for(
                     asyncio.open_connection(self.host, self.port),
                     timeout=CONNECTION_TIMEOUT
                 )
                 
-                # Authenticate
                 auth_hash = self._generate_auth_hash()
                 login_cmd = f"{CMD_LOGIN}{self.username},{auth_hash}\r\n"
                 
-                _LOGGER.debug("Sending login command")
                 self._writer.write(login_cmd.encode())
                 await self._writer.drain()
                 
@@ -146,13 +154,11 @@ class NetXThermostatAPI:
                 )
                 response_str = response.decode().strip()
                 
-                _LOGGER.debug("Login response: %s", response_str)
-                
                 if response_str.startswith(RESP_LOGIN_OK):
                     self._authenticated = True
                     self.state.connected = True
                     self.state.last_error = None
-                    _LOGGER.info("Successfully connected to NetX Thermostat at %s", self.host)
+                    _LOGGER.info("Connected to NetX Thermostat at %s", self.host)
                     return True
                 else:
                     self._authenticated = False
@@ -169,16 +175,16 @@ class NetXThermostatAPI:
         except OSError as err:
             self.state.connected = False
             self.state.last_error = f"Connection failed: {err}"
-            _LOGGER.error("Connection error to %s:%s - %s", self.host, self.port, err)
+            _LOGGER.error("Connection error: %s", err)
             return False
         except Exception as err:
             self.state.connected = False
             self.state.last_error = str(err)
-            _LOGGER.error("Unexpected connection error: %s", err)
+            _LOGGER.error("Unexpected error: %s", err)
             return False
 
     async def _close_connection_locked(self) -> None:
-        """Close the connection (must be called with lock held)."""
+        """Close connection (must hold lock)."""
         if self._writer:
             try:
                 self._writer.close()
@@ -194,11 +200,14 @@ class NetXThermostatAPI:
         async with self._lock:
             await self._close_connection_locked()
             self.state.connected = False
-            _LOGGER.debug("Disconnected from thermostat")
+        
+        # Close HTTP session
+        if self._http_session and not self._http_session.closed:
+            await self._http_session.close()
+            self._http_session = None
 
     async def _send_command(self, command: str) -> str | None:
         """Send a command and receive response."""
-        # Reconnect if needed
         if not self._authenticated:
             if not await self.connect():
                 return None
@@ -206,22 +215,18 @@ class NetXThermostatAPI:
         try:
             async with self._lock:
                 if not self._writer or not self._reader:
-                    _LOGGER.warning("No connection available for command: %s", command)
                     return None
                 
-                # Send command
-                full_command = f"{command}\r\n"
-                self._writer.write(full_command.encode())
+                self._writer.write(f"{command}\r\n".encode())
                 await self._writer.drain()
                 
-                # Receive response
                 response = await asyncio.wait_for(
                     self._reader.readline(),
                     timeout=COMMAND_TIMEOUT
                 )
                 response_str = response.decode().strip()
                 
-                _LOGGER.debug("Command: %s -> Response: %s", command, response_str)
+                _LOGGER.debug("Command: %s -> %s", command, response_str)
                 return response_str
                 
         except asyncio.TimeoutError:
@@ -238,52 +243,48 @@ class NetXThermostatAPI:
     async def async_update(self) -> NetXThermostatState:
         """Fetch all data from the thermostat."""
         try:
-            # Get temperature scale
+            # === TCP API DATA ===
+            
+            # Temperature scale
             response = await self._send_command(CMD_GET_TEMP_SCALE)
             if response and response.startswith(RESP_TEMP_SCALE):
                 scale = response.replace(RESP_TEMP_SCALE, "").strip()
                 self.state.temp_scale = "F" if "FAHRENHEIT" in scale.upper() else "C"
             
-            # Get all states (main data) - this is the important one
+            # All states (main data)
             response = await self._send_command(CMD_GET_ALL_STATES)
             if response and response.startswith(RESP_ALL_STATES):
                 self._parse_all_states(response.replace(RESP_ALL_STATES, ""))
             
-            # Get humidity
-            response = await self._send_command(CMD_GET_HUMIDITY)
-            if response and response.startswith(RESP_HUMIDITY):
-                try:
-                    humidity_str = response.replace(RESP_HUMIDITY, "").strip()
-                    self.state.humidity = int(humidity_str) if humidity_str.isdigit() else None
-                except (ValueError, TypeError):
-                    self.state.humidity = None
-            
-            # Get operation mode (manual vs schedule)
+            # Operation mode (manual vs schedule)
             response = await self._send_command(CMD_GET_OPERATION_MODE)
             if response and response.startswith(RESP_OPERATION_MODE):
                 mode = response.replace(RESP_OPERATION_MODE, "").strip()
                 self.state.is_manual_mode = (mode == OPERATION_MODE_MANUAL)
                 self.state.operation_mode = "Manual" if self.state.is_manual_mode else "Schedule"
             
-            # Get humidity relay mode (RMRF1:OFF,OFF)
+            # Humidity relay mode
             response = await self._send_command(CMD_GET_RELAY_MODE)
             if response and response.startswith(RESP_RELAY_MODE):
                 self._parse_relay_mode(response.replace(RESP_RELAY_MODE, ""))
             
-            # Get humidification settings (RMHS1:WH,50,5)
+            # Humidification settings
             response = await self._send_command(CMD_GET_HUMIDIFICATION)
             if response and response.startswith(RESP_HUMIDIFICATION):
                 self._parse_humidification(response.replace(RESP_HUMIDIFICATION, ""))
             
-            # Get dehumidification settings (RMDHS1:IC,55,5)
+            # Dehumidification settings
             response = await self._send_command(CMD_GET_DEHUMIDIFICATION)
             if response and response.startswith(RESP_DEHUMIDIFICATION):
                 self._parse_dehumidification(response.replace(RESP_DEHUMIDIFICATION, ""))
             
-            # Get relay state (RRS1:OFF)
+            # Relay state
             response = await self._send_command(CMD_GET_RELAY_STATE)
             if response and response.startswith(RESP_RELAY_STATE):
                 self.state.relay_state = response.replace(RESP_RELAY_STATE, "").strip()
+            
+            # === HTTP SENSOR DATA ===
+            await self._fetch_http_sensors()
             
             self.state.connected = True
             self.state.last_error = None
@@ -295,125 +296,147 @@ class NetXThermostatAPI:
         
         return self.state
 
-    def _parse_relay_mode(self, data: str) -> None:
-        """
-        Parse RMRF1 response.
-        
-        Format: {relay1_mode},{relay2_mode}
-        Example: OFF,OFF or HUM,OFF or DEHUM,OFF
-        """
-        try:
-            parts = data.split(",")
-            if len(parts) >= 2:
-                self.state.relay1_mode = parts[0].strip().upper()
-                self.state.relay2_mode = parts[1].strip().upper()
-            elif len(parts) == 1:
-                self.state.relay1_mode = parts[0].strip().upper()
-        except Exception as err:
-            _LOGGER.error("Error parsing RMRF1 response '%s': %s", data, err)
+    async def _get_http_session(self) -> aiohttp.ClientSession:
+        """Get or create HTTP session."""
+        if self._http_session is None or self._http_session.closed:
+            timeout = aiohttp.ClientTimeout(total=10)
+            self._http_session = aiohttp.ClientSession(timeout=timeout)
+        return self._http_session
 
-    def _parse_humidification(self, data: str) -> None:
-        """
-        Parse RMHS1 response.
-        
-        Format: {mode},{setpoint},{variance}
-        Example: WH,50,5 means With Heating, 50% setpoint, ±5% variance
-        """
+    async def _fetch_http_sensors(self) -> None:
+        """Fetch humidity and CO2 data via HTTP."""
         try:
-            parts = data.split(",")
-            if len(parts) >= 3:
-                self.state.hum_control_mode = parts[0].strip().upper()
-                self.state.hum_setpoint = int(parts[1].strip())
-                self.state.hum_variance = int(parts[2].strip())
-            _LOGGER.debug("Parsed humidification: mode=%s, setpoint=%s, variance=%s",
-                         self.state.hum_control_mode, self.state.hum_setpoint, self.state.hum_variance)
+            session = await self._get_http_session()
+            
+            # Fetch humidity from index.xml
+            await self._fetch_humidity(session)
+            
+            # Fetch CO2 from co2.json
+            await self._fetch_co2(session)
+            
         except Exception as err:
-            _LOGGER.error("Error parsing RMHS1 response '%s': %s", data, err)
+            _LOGGER.debug("HTTP sensor fetch error (non-critical): %s", err)
 
-    def _parse_dehumidification(self, data: str) -> None:
-        """
-        Parse RMDHS1 response.
-        
-        Format: {mode},{setpoint},{variance}
-        Example: IC,55,5 means Independent of Cooling, 55% setpoint, ±5% variance
-        """
+    async def _fetch_humidity(self, session: aiohttp.ClientSession) -> None:
+        """Fetch humidity from index.xml."""
         try:
-            parts = data.split(",")
-            if len(parts) >= 3:
-                self.state.dehum_control_mode = parts[0].strip().upper()
-                self.state.dehum_setpoint = int(parts[1].strip())
-                self.state.dehum_variance = int(parts[2].strip())
-            _LOGGER.debug("Parsed dehumidification: mode=%s, setpoint=%s, variance=%s",
-                         self.state.dehum_control_mode, self.state.dehum_setpoint, self.state.dehum_variance)
+            url = f"http://{self.host}/index.xml"
+            async with session.get(url, auth=self._http_auth) as response:
+                if response.status == 200:
+                    text = await response.text()
+                    
+                    # Parse humidity from XML: <humidity>25</humidity>
+                    match = re.search(r'<humidity>(\d+)</humidity>', text, re.IGNORECASE)
+                    if match:
+                        self.state.humidity = int(match.group(1))
+                        _LOGGER.debug("HTTP humidity: %s%%", self.state.humidity)
+                else:
+                    _LOGGER.debug("HTTP index.xml returned %s", response.status)
+        except asyncio.TimeoutError:
+            _LOGGER.debug("HTTP humidity fetch timeout")
         except Exception as err:
-            _LOGGER.error("Error parsing RMDHS1 response '%s': %s", data, err)
+            _LOGGER.debug("HTTP humidity fetch error: %s", err)
+
+    async def _fetch_co2(self, session: aiohttp.ClientSession) -> None:
+        """Fetch CO2 data from co2.json."""
+        try:
+            url = f"http://{self.host}/co2.json"
+            async with session.get(url, auth=self._http_auth) as response:
+                if response.status == 200:
+                    try:
+                        data = await response.json()
+                        
+                        # CO2 data is nested: {"co2": {"level": "635", ...}}
+                        co2_data = data.get("co2", {})
+                        
+                        # Check if valid
+                        if co2_data.get("valid", "").lower() != "true":
+                            _LOGGER.debug("CO2 module reports invalid data")
+                            return
+                        
+                        # Current CO2 level (comes as string)
+                        level_str = co2_data.get("level", "")
+                        if level_str:
+                            try:
+                                self.state.co2_level = int(level_str)
+                                _LOGGER.debug("HTTP CO2 level: %s ppm", self.state.co2_level)
+                            except ValueError:
+                                pass
+                        
+                        # Peak CO2 level
+                        peak_str = co2_data.get("peak_level", "")
+                        if peak_str:
+                            try:
+                                self.state.co2_peak_level = int(peak_str)
+                                _LOGGER.debug("HTTP CO2 peak: %s ppm", self.state.co2_peak_level)
+                            except ValueError:
+                                pass
+                        
+                        # Alert level
+                        alert_str = co2_data.get("alert_level", "")
+                        if alert_str:
+                            try:
+                                self.state.co2_alert_level = int(alert_str)
+                            except ValueError:
+                                pass
+                        
+                        # In alert state
+                        self.state.co2_in_alert = co2_data.get("in_alert", "").lower() == "true"
+                        
+                    except Exception as json_err:
+                        _LOGGER.debug("CO2 JSON parse error: %s", json_err)
+                elif response.status == 404:
+                    _LOGGER.debug("CO2 sensor not available (404)")
+                else:
+                    _LOGGER.debug("HTTP co2.json returned %s", response.status)
+        except asyncio.TimeoutError:
+            _LOGGER.debug("HTTP CO2 fetch timeout")
+        except Exception as err:
+            _LOGGER.debug("HTTP CO2 fetch error: %s", err)
 
     def _parse_all_states(self, data: str) -> None:
-        """
-        Parse RAS1 response.
-        
-        Format: indoor,outdoor,mode,fan,override,recovery,spcool,spheat,opstatus,stage,event
-        Example: 68,NA,HEAT,FAN ON,NO,NO,77,68,HEAT,1,NONE
-        """
+        """Parse RAS1 response."""
         try:
             parts = data.split(",")
-            _LOGGER.debug("Parsing RAS1 with %d parts: %s", len(parts), parts)
-            
             if len(parts) >= 11:
-                # Indoor temperature
                 self.state.indoor_temp = self._parse_temp(parts[0])
-                
-                # Outdoor temperature
                 self.state.outdoor_temp = self._parse_temp(parts[1])
-                
-                # HVAC mode (OFF, HEAT, COOL, AUTO)
                 self.state.hvac_mode = parts[2].strip().upper()
                 
-                # Fan mode - handle "FAN ON" vs "FAN AUTO" vs just "ON"/"AUTO"
                 fan_str = parts[3].strip().upper()
-                if "ON" in fan_str:
-                    self.state.fan_mode = "ON"
-                else:
-                    self.state.fan_mode = "AUTO"
+                self.state.fan_mode = "ON" if "ON" in fan_str else "AUTO"
                 
-                # Override active
                 self.state.override_active = parts[4].strip().upper() in ("YES", "Y", "TRUE", "1")
-                
-                # Recovery active
                 self.state.recovery_active = parts[5].strip().upper() in ("YES", "Y", "TRUE", "1")
                 
-                # Cool setpoint
                 try:
                     self.state.cool_setpoint = int(parts[6].strip())
                 except (ValueError, TypeError):
                     pass
                 
-                # Heat setpoint
                 try:
                     self.state.heat_setpoint = int(parts[7].strip())
                 except (ValueError, TypeError):
                     pass
                 
-                # Operating status (what's actually running: HEAT, COOL, OFF, etc.)
                 self.state.operating_status = parts[8].strip().upper()
                 
-                # Stage
                 try:
                     self.state.stage = int(parts[9].strip())
+                    # Stage 0 = idle, Stage >= 1 = actively running
+                    self.state.is_idle = (self.state.stage == 0)
                 except (ValueError, TypeError):
                     self.state.stage = None
+                    self.state.is_idle = True
                 
-                # Event
                 event = parts[10].strip()
                 self.state.event = event if event.upper() != "NONE" else None
-            else:
-                _LOGGER.warning("RAS1 response has fewer than 11 parts: %s", data)
                 
         except Exception as err:
-            _LOGGER.error("Error parsing RAS1 response '%s': %s", data, err)
+            _LOGGER.error("Error parsing RAS1 '%s': %s", data, err)
 
     def _parse_temp(self, temp_str: str) -> float | None:
-        """Parse temperature value, handling NA and other invalid values."""
+        """Parse temperature value."""
         temp_str = temp_str.strip().upper()
         if temp_str in ("NA", "--", "", "N/A"):
             return None
@@ -422,65 +445,68 @@ class NetXThermostatAPI:
         except (ValueError, TypeError):
             return None
 
-    # ----- Write Commands -----
+    def _parse_relay_mode(self, data: str) -> None:
+        """Parse RMRF1 response."""
+        try:
+            parts = data.split(",")
+            if len(parts) >= 2:
+                self.state.relay1_mode = parts[0].strip().upper()
+                self.state.relay2_mode = parts[1].strip().upper()
+            elif len(parts) == 1:
+                self.state.relay1_mode = parts[0].strip().upper()
+        except Exception as err:
+            _LOGGER.error("Error parsing RMRF1 '%s': %s", data, err)
+
+    def _parse_humidification(self, data: str) -> None:
+        """Parse RMHS1 response."""
+        try:
+            parts = data.split(",")
+            if len(parts) >= 3:
+                self.state.hum_control_mode = parts[0].strip().upper()
+                self.state.hum_setpoint = int(parts[1].strip())
+                self.state.hum_variance = int(parts[2].strip())
+        except Exception as err:
+            _LOGGER.error("Error parsing RMHS1 '%s': %s", data, err)
+
+    def _parse_dehumidification(self, data: str) -> None:
+        """Parse RMDHS1 response."""
+        try:
+            parts = data.split(",")
+            if len(parts) >= 3:
+                self.state.dehum_control_mode = parts[0].strip().upper()
+                self.state.dehum_setpoint = int(parts[1].strip())
+                self.state.dehum_variance = int(parts[2].strip())
+        except Exception as err:
+            _LOGGER.error("Error parsing RMDHS1 '%s': %s", data, err)
 
     def _validate_write_response(self, command: str, response: str | None, expected_value: str = None) -> bool:
-        """
-        Validate a write command response.
-        
-        Response format: {COMMAND}:{VALUE_SET}
-        Example: WNHD1D70:70 means command accepted, value set to 70
-        """
+        """Validate a write command response."""
         if response is None:
             return False
-        
-        # Response should contain the command and a colon
         if ":" not in response:
             _LOGGER.warning("Unexpected response format: %s", response)
             return False
-        
-        # Parse response
-        parts = response.split(":", 1)
-        if len(parts) != 2:
-            return False
-        
-        resp_command, resp_value = parts
-        
-        # Verify the response matches our command
-        if not response.startswith(command.split("D")[0]):  # Match command prefix
-            _LOGGER.warning("Response command mismatch: sent %s, got %s", command, resp_command)
-            return False
-        
-        # If we expected a specific value, verify it
-        if expected_value is not None and resp_value.strip() != str(expected_value):
-            _LOGGER.warning("Response value mismatch: expected %s, got %s", expected_value, resp_value)
-            return False
-        
-        _LOGGER.debug("Write command successful: %s -> %s", command, response)
+        _LOGGER.debug("Write successful: %s -> %s", command, response)
         return True
 
     async def async_set_hvac_mode(self, mode: str) -> bool:
-        """Set HVAC mode (OFF, HEAT, COOL, AUTO)."""
+        """Set HVAC mode."""
         mode = mode.upper()
         if mode not in ("OFF", "HEAT", "COOL", "AUTO"):
-            _LOGGER.error("Invalid HVAC mode: %s", mode)
             return False
         
-        # Use the correct command based on current operation mode
         if self.state.is_manual_mode:
             command = f"{CMD_SET_MODE_MANUAL}{mode}"
         else:
             command = f"{CMD_SET_MODE_SCHEDULE}{mode}"
         
-        _LOGGER.debug("Setting HVAC mode to %s (manual=%s)", mode, self.state.is_manual_mode)
         response = await self._send_command(command)
-        return self._validate_write_response(command, response, mode)
+        return self._validate_write_response(command, response)
 
     async def async_set_fan_mode(self, mode: str) -> bool:
-        """Set fan mode (AUTO, ON)."""
+        """Set fan mode."""
         mode = mode.upper()
         if mode not in ("AUTO", "ON"):
-            _LOGGER.error("Invalid fan mode: %s", mode)
             return False
         
         if self.state.is_manual_mode:
@@ -488,9 +514,8 @@ class NetXThermostatAPI:
         else:
             command = f"{CMD_SET_FAN_SCHEDULE}{mode}"
         
-        _LOGGER.debug("Setting fan mode to %s", mode)
         response = await self._send_command(command)
-        return self._validate_write_response(command, response, mode)
+        return self._validate_write_response(command, response)
 
     async def async_set_cool_setpoint(self, temperature: int) -> bool:
         """Set cooling setpoint."""
@@ -499,9 +524,8 @@ class NetXThermostatAPI:
         else:
             command = f"{CMD_SET_COOL_SCHEDULE}{temperature}"
         
-        _LOGGER.debug("Setting cool setpoint to %s", temperature)
         response = await self._send_command(command)
-        return self._validate_write_response(command, response, str(temperature))
+        return self._validate_write_response(command, response)
 
     async def async_set_heat_setpoint(self, temperature: int) -> bool:
         """Set heating setpoint."""
@@ -510,88 +534,42 @@ class NetXThermostatAPI:
         else:
             command = f"{CMD_SET_HEAT_SCHEDULE}{temperature}"
         
-        _LOGGER.debug("Setting heat setpoint to %s", temperature)
-        response = await self._send_command(command)
-        return self._validate_write_response(command, response, str(temperature))
-
-    async def async_set_temperature_scale(self, scale: str) -> bool:
-        """Set temperature scale (F or C)."""
-        scale = scale.upper()[0]  # Just F or C
-        if scale not in ("F", "C"):
-            _LOGGER.error("Invalid temperature scale: %s", scale)
-            return False
-        
-        command = f"{CMD_SET_TEMP_SCALE}{scale}"
-        _LOGGER.debug("Setting temperature scale to %s", scale)
-        response = await self._send_command(command)
-        return self._validate_write_response(command, response, scale)
-
-    async def async_set_relay_mode(self, mode: str) -> bool:
-        """Set humidity relay mode (OFF, HUM, DEHUM)."""
-        mode = mode.upper()
-        if mode not in ("OFF", "HUM", "DEHUM"):
-            _LOGGER.error("Invalid relay mode: %s", mode)
-            return False
-        
-        command = f"{CMD_SET_RELAY_MODE}{mode}"
-        _LOGGER.debug("Setting relay mode to %s", mode)
         response = await self._send_command(command)
         return self._validate_write_response(command, response)
 
-    async def async_set_humidification(
-        self, 
-        independent: bool, 
-        setpoint: int, 
-        variance: int = 5
-    ) -> bool:
-        """
-        Set humidification settings.
+    async def async_set_relay_mode(self, mode: str) -> bool:
+        """Set humidity relay mode."""
+        mode = mode.upper()
+        if mode not in ("OFF", "HUM", "DEHUM"):
+            return False
         
-        Args:
-            independent: If True, run independently of heating. If False, run with heating.
-            setpoint: Target humidity percentage (10-90)
-            variance: +/- variance percentage (2-10)
-        """
-        mode = "IH" if independent else "WH"  # IH = Independent of Heating, WH = With Heating
-        
-        # Clamp values to valid range
+        command = f"{CMD_SET_RELAY_MODE}{mode}"
+        response = await self._send_command(command)
+        return self._validate_write_response(command, response)
+
+    async def async_set_humidification(self, independent: bool, setpoint: int, variance: int = 5) -> bool:
+        """Set humidification settings."""
+        mode = "IH" if independent else "WH"
         setpoint = max(10, min(90, setpoint))
         variance = max(2, min(10, variance))
         
         command = f"{CMD_SET_HUMIDIFICATION}{mode},{setpoint},{variance}"
-        _LOGGER.debug("Setting humidification: mode=%s, setpoint=%s, variance=%s", mode, setpoint, variance)
         response = await self._send_command(command)
         return self._validate_write_response(command, response)
 
-    async def async_set_dehumidification(
-        self, 
-        independent: bool, 
-        setpoint: int, 
-        variance: int = 5
-    ) -> bool:
-        """
-        Set dehumidification settings.
-        
-        Args:
-            independent: If True, run independently of cooling. If False, run with cooling.
-            setpoint: Target humidity percentage (10-90)
-            variance: +/- variance percentage (2-10)
-        """
-        mode = "IC" if independent else "WC"  # IC = Independent of Cooling, WC = With Cooling
-        
-        # Clamp values to valid range
+    async def async_set_dehumidification(self, independent: bool, setpoint: int, variance: int = 5) -> bool:
+        """Set dehumidification settings."""
+        mode = "IC" if independent else "WC"
         setpoint = max(10, min(90, setpoint))
         variance = max(2, min(10, variance))
         
         command = f"{CMD_SET_DEHUMIDIFICATION}{mode},{setpoint},{variance}"
-        _LOGGER.debug("Setting dehumidification: mode=%s, setpoint=%s, variance=%s", mode, setpoint, variance)
         response = await self._send_command(command)
         return self._validate_write_response(command, response)
 
     async def test_connection(self) -> bool:
         """Test connection to the thermostat."""
         if await self.connect():
-            # Try to get state to verify full connectivity
             response = await self._send_command(CMD_GET_TEMP_SCALE)
             return response is not None
         return False

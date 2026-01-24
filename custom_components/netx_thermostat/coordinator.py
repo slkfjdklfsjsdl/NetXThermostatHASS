@@ -1,13 +1,9 @@
 """Data coordinator for NetX Thermostat integration."""
 import logging
 from datetime import timedelta
-from typing import Any
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import (
-    DataUpdateCoordinator,
-    UpdateFailed,
-)
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN, UPDATE_INTERVAL
 from .api import NetXThermostatAPI, NetXThermostatState
@@ -15,14 +11,10 @@ from .api import NetXThermostatAPI, NetXThermostatState
 _LOGGER = logging.getLogger(__name__)
 
 
-class NetXTCPDataUpdateCoordinator(DataUpdateCoordinator[NetXThermostatState]):
-    """Class to manage fetching NetX data via TCP API."""
+class NetXDataUpdateCoordinator(DataUpdateCoordinator[NetXThermostatState]):
+    """Class to manage fetching NetX data."""
 
-    def __init__(
-        self, 
-        hass: HomeAssistant, 
-        api: NetXThermostatAPI,
-    ) -> None:
+    def __init__(self, hass: HomeAssistant, api: NetXThermostatAPI) -> None:
         """Initialize the coordinator."""
         self.api = api
 
@@ -39,9 +31,7 @@ class NetXTCPDataUpdateCoordinator(DataUpdateCoordinator[NetXThermostatState]):
             state = await self.api.async_update()
             
             if not state.connected:
-                raise UpdateFailed(
-                    f"Failed to connect to thermostat: {state.last_error}"
-                )
+                raise UpdateFailed(f"Failed to connect: {state.last_error}")
             
             return state
 
@@ -49,5 +39,5 @@ class NetXTCPDataUpdateCoordinator(DataUpdateCoordinator[NetXThermostatState]):
             raise UpdateFailed(f"Error communicating with thermostat: {err}")
 
     async def async_shutdown(self) -> None:
-        """Disconnect from the thermostat on shutdown."""
+        """Disconnect on shutdown."""
         await self.api.disconnect()

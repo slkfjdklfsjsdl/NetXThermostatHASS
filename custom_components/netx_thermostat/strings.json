@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "NetX Thermostat",
-        "description": "Connect to your NetX Thermostat.",
+        "description": "Connect to your NetX Thermostat using the TCP API (port 10001).",
         "data": {
           "host": "IP Address",
           "username": "Username",
@@ -14,7 +14,7 @@
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to the thermostat. Please check the IP address, port, and credentials."
+      "cannot_connect": "Unable to connect. Check IP address, port, and credentials."
     },
     "abort": {
       "already_configured": "This thermostat is already configured."
@@ -23,7 +23,16 @@
   "entity": {
     "climate": {
       "netx_thermostat": {
-        "name": "Thermostat"
+        "name": "Thermostat",
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "none": "None",
+              "Humidify": "Humidify",
+              "Dehumidify": "Dehumidify"
+            }
+          }
+        }
       }
     },
     "sensor": {
@@ -32,6 +41,12 @@
       },
       "humidity": {
         "name": "Humidity"
+      },
+      "co2": {
+        "name": "CO2"
+      },
+      "co2_peak": {
+        "name": "CO2 Peak"
       },
       "operation_mode": {
         "name": "Operation Mode"
@@ -42,9 +57,6 @@
       "stage": {
         "name": "Stage"
       },
-      "relay_state": {
-        "name": "Relay State"
-      },
       "hum_mode": {
         "name": "Humidification Mode"
       },
@@ -53,9 +65,6 @@
       }
     },
     "switch": {
-      "fan": {
-        "name": "Fan"
-      },
       "hum_independent": {
         "name": "Humidify Independent Mode"
       },
@@ -75,11 +84,6 @@
       },
       "dehum_variance": {
         "name": "Dehumidify Variance"
-      }
-    },
-    "select": {
-      "relay_mode": {
-        "name": "Humidity Relay Mode"
       }
     }
   }

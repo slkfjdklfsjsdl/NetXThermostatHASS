@@ -9,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import NetXTCPDataUpdateCoordinator
+from .coordinator import NetXDataUpdateCoordinator
 from .api import NetXThermostatAPI
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,10 +35,33 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class NetXHumSetpointNumber(CoordinatorEntity[NetXTCPDataUpdateCoordinator], NumberEntity):
-    """Humidification setpoint control."""
+class NetXBaseNumber(CoordinatorEntity[NetXDataUpdateCoordinator], NumberEntity):
+    """Base class for NetX number entities."""
 
     _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: NetXDataUpdateCoordinator,
+        api: NetXThermostatAPI,
+        config_entry: ConfigEntry,
+    ) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator)
+        self._api = api
+        device_name = config_entry.data.get("device_name", "NetX Thermostat")
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, config_entry.entry_id)},
+            "name": device_name,
+            "manufacturer": "NetX",
+            "model": "Network Thermostat",
+        }
+        self._config_entry = config_entry
+
+
+class NetXHumSetpointNumber(NetXBaseNumber):
+    """Humidification setpoint control."""
+
     _attr_name = "Humidify Below"
     _attr_icon = "mdi:water-plus"
     _attr_native_min_value = 10
@@ -47,25 +70,10 @@ class NetXHumSetpointNumber(CoordinatorEntity[NetXTCPDataUpdateCoordinator], Num
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_mode = NumberMode.SLIDER
 
-    def __init__(
-        self,
-        coordinator: NetXTCPDataUpdateCoordinator,
-        api: NetXThermostatAPI,
-        config_entry: ConfigEntry,
-    ) -> None:
-        """Initialize the number entity."""
-        super().__init__(coordinator)
-        self._api = api
+    def __init__(self, coordinator, api, config_entry) -> None:
+        """Initialize."""
+        super().__init__(coordinator, api, config_entry)
         self._attr_unique_id = f"{config_entry.entry_id}_hum_setpoint"
-        
-        device_name = config_entry.data.get("device_name", "NetX Thermostat")
-        
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, config_entry.entry_id)},
-            "name": device_name,
-            "manufacturer": "NetX",
-            "model": "Network Thermostat",
-        }
 
     @property
     def native_value(self) -> float | None:
@@ -93,10 +101,9 @@ class NetXHumSetpointNumber(CoordinatorEntity[NetXTCPDataUpdateCoordinator], Num
         await self.coordinator.async_request_refresh()
 
 
-class NetXHumVarianceNumber(CoordinatorEntity[NetXTCPDataUpdateCoordinator], NumberEntity):
+class NetXHumVarianceNumber(NetXBaseNumber):
     """Humidification variance control."""
 
-    _attr_has_entity_name = True
     _attr_name = "Humidify Variance"
     _attr_icon = "mdi:plus-minus-variant"
     _attr_native_min_value = 2
@@ -105,25 +112,10 @@ class NetXHumVarianceNumber(CoordinatorEntity[NetXTCPDataUpdateCoordinator], Num
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_mode = NumberMode.BOX
 
-    def __init__(
-        self,
-        coordinator: NetXTCPDataUpdateCoordinator,
-        api: NetXThermostatAPI,
-        config_entry: ConfigEntry,
-    ) -> None:
-        """Initialize the number entity."""
-        super().__init__(coordinator)
-        self._api = api
+    def __init__(self, coordinator, api, config_entry) -> None:
+        """Initialize."""
+        super().__init__(coordinator, api, config_entry)
         self._attr_unique_id = f"{config_entry.entry_id}_hum_variance"
-        
-        device_name = config_entry.data.get("device_name", "NetX Thermostat")
-        
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, config_entry.entry_id)},
-            "name": device_name,
-            "manufacturer": "NetX",
-            "model": "Network Thermostat",
-        }
 
     @property
     def native_value(self) -> float | None:
@@ -151,10 +143,9 @@ class NetXHumVarianceNumber(CoordinatorEntity[NetXTCPDataUpdateCoordinator], Num
         await self.coordinator.async_request_refresh()
 
 
-class NetXDehumSetpointNumber(CoordinatorEntity[NetXTCPDataUpdateCoordinator], NumberEntity):
+class NetXDehumSetpointNumber(NetXBaseNumber):
     """Dehumidification setpoint control."""
 
-    _attr_has_entity_name = True
     _attr_name = "Dehumidify Above"
     _attr_icon = "mdi:water-minus"
     _attr_native_min_value = 10
@@ -163,25 +154,10 @@ class NetXDehumSetpointNumber(CoordinatorEntity[NetXTCPDataUpdateCoordinator], N
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_mode = NumberMode.SLIDER
 
-    def __init__(
-        self,
-        coordinator: NetXTCPDataUpdateCoordinator,
-        api: NetXThermostatAPI,
-        config_entry: ConfigEntry,
-    ) -> None:
-        """Initialize the number entity."""
-        super().__init__(coordinator)
-        self._api = api
+    def __init__(self, coordinator, api, config_entry) -> None:
+        """Initialize."""
+        super().__init__(coordinator, api, config_entry)
         self._attr_unique_id = f"{config_entry.entry_id}_dehum_setpoint"
-        
-        device_name = config_entry.data.get("device_name", "NetX Thermostat")
-        
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, config_entry.entry_id)},
-            "name": device_name,
-            "manufacturer": "NetX",
-            "model": "Network Thermostat",
-        }
 
     @property
     def native_value(self) -> float | None:
@@ -209,10 +185,9 @@ class NetXDehumSetpointNumber(CoordinatorEntity[NetXTCPDataUpdateCoordinator], N
         await self.coordinator.async_request_refresh()
 
 
-class NetXDehumVarianceNumber(CoordinatorEntity[NetXTCPDataUpdateCoordinator], NumberEntity):
+class NetXDehumVarianceNumber(NetXBaseNumber):
     """Dehumidification variance control."""
 
-    _attr_has_entity_name = True
     _attr_name = "Dehumidify Variance"
     _attr_icon = "mdi:plus-minus-variant"
     _attr_native_min_value = 2
@@ -221,25 +196,10 @@ class NetXDehumVarianceNumber(CoordinatorEntity[NetXTCPDataUpdateCoordinator], N
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_mode = NumberMode.BOX
 
-    def __init__(
-        self,
-        coordinator: NetXTCPDataUpdateCoordinator,
-        api: NetXThermostatAPI,
-        config_entry: ConfigEntry,
-    ) -> None:
-        """Initialize the number entity."""
-        super().__init__(coordinator)
-        self._api = api
+    def __init__(self, coordinator, api, config_entry) -> None:
+        """Initialize."""
+        super().__init__(coordinator, api, config_entry)
         self._attr_unique_id = f"{config_entry.entry_id}_dehum_variance"
-        
-        device_name = config_entry.data.get("device_name", "NetX Thermostat")
-        
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, config_entry.entry_id)},
-            "name": device_name,
-            "manufacturer": "NetX",
-            "model": "Network Thermostat",
-        }
 
     @property
     def native_value(self) -> float | None:

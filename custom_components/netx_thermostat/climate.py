@@ -8,10 +8,7 @@ from homeassistant.components.climate import (
     HVACMode,
     HVACAction,
 )
-from homeassistant.const import (
-    ATTR_TEMPERATURE,
-    UnitOfTemperature,
-)
+from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
@@ -21,8 +18,13 @@ from .const import (
     DOMAIN,
     MIN_TEMP,
     MAX_TEMP,
+    PRESET_NONE,
+    PRESET_HUMIDIFY,
+    PRESET_DEHUMIDIFY,
+    PRESET_TO_RELAY,
+    RELAY_TO_PRESET,
 )
-from .coordinator import NetXTCPDataUpdateCoordinator
+from .coordinator import NetXDataUpdateCoordinator
 from .api import NetXThermostatAPI
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,10 +40,10 @@ async def async_setup_entry(
     coordinator = data["coordinator"]
     api = data["api"]
 
-    async_add_entities([NetXTCPClimate(coordinator, api, config_entry)])
+    async_add_entities([NetXClimate(coordinator, api, config_entry)])
 
 
-class NetXTCPClimate(CoordinatorEntity[NetXTCPDataUpdateCoordinator], ClimateEntity):
+class NetXClimate(CoordinatorEntity[NetXDataUpdateCoordinator], ClimateEntity):
     """Representation of a NetX Thermostat."""
 
     _attr_has_entity_name = True
@@ -50,21 +52,23 @@ class NetXTCPClimate(CoordinatorEntity[NetXTCPDataUpdateCoordinator], ClimateEnt
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         | ClimateEntityFeature.FAN_MODE
+        | ClimateEntityFeature.PRESET_MODE
     )
     _attr_hvac_modes = [
-        HVACMode.OFF, 
-        HVACMode.HEAT, 
-        HVACMode.COOL, 
-        HVACMode.HEAT_COOL,  # AUTO
+        HVACMode.OFF,
+        HVACMode.HEAT,
+        HVACMode.COOL,
+        HVACMode.HEAT_COOL,
         HVACMode.FAN_ONLY,
     ]
     _attr_fan_modes = ["auto", "on"]
+    _attr_preset_modes = [PRESET_NONE, PRESET_HUMIDIFY, PRESET_DEHUMIDIFY]
     _attr_min_temp = MIN_TEMP
     _attr_max_temp = MAX_TEMP
 
     def __init__(
-        self, 
-        coordinator: NetXTCPDataUpdateCoordinator,
+        self,
+        coordinator: NetXDataUpdateCoordinator,
         api: NetXThermostatAPI,
         config_entry: ConfigEntry,
     ) -> None:
@@ -98,16 +102,14 @@ class NetXTCPClimate(CoordinatorEntity[NetXTCPDataUpdateCoordinator], ClimateEnt
 
     @property
     def current_humidity(self) -> int | None:
-        """Return the current humidity."""
+        """Return the current humidity (from HTTP API)."""
         if self.coordinator.data and self.coordinator.data.humidity:
-            # Only return humidity if it's a valid reading (not 0 which often means no sensor)
-            humidity = self.coordinator.data.humidity
-            return humidity if humidity > 0 else None
+            return self.coordinator.data.humidity
         return None
 
     @property
     def target_temperature(self) -> float | None:
-        """Return the temperature we try to reach (for single setpoint modes)."""
+        """Return the temperature we try to reach."""
         if not self.coordinator.data:
             return None
         
@@ -116,19 +118,18 @@ class NetXTCPClimate(CoordinatorEntity[NetXTCPDataUpdateCoordinator], ClimateEnt
             return self.coordinator.data.heat_setpoint
         elif mode == HVACMode.COOL:
             return self.coordinator.data.cool_setpoint
-        # For AUTO/HEAT_COOL, return None to use range instead
         return None
 
     @property
     def target_temperature_high(self) -> float | None:
-        """Return the upper bound target temperature (cooling setpoint)."""
+        """Return the upper bound target temperature."""
         if self.coordinator.data:
             return self.coordinator.data.cool_setpoint
         return None
 
     @property
     def target_temperature_low(self) -> float | None:
-        """Return the lower bound target temperature (heating setpoint)."""
+        """Return the lower bound target temperature."""
         if self.coordinator.data:
             return self.coordinator.data.heat_setpoint
         return None
@@ -143,7 +144,6 @@ class NetXTCPClimate(CoordinatorEntity[NetXTCPDataUpdateCoordinator], ClimateEnt
         fan = self.coordinator.data.fan_mode
         
         if mode == "OFF":
-            # Check if it's fan-only mode
             if fan == "ON":
                 return HVACMode.FAN_ONLY
             return HVACMode.OFF
@@ -162,18 +162,20 @@ class NetXTCPClimate(CoordinatorEntity[NetXTCPDataUpdateCoordinator], ClimateEnt
         if not self.coordinator.data:
             return None
         
-        status = self.coordinator.data.operating_status
-        fan = self.coordinator.data.fan_mode
+        state = self.coordinator.data
         
-        if status == "HEAT":
-            return HVACAction.HEATING
-        elif status == "COOL":
-            return HVACAction.COOLING
-        elif status in ("OFF", "IDLE", None):
-            # Check if fan is running
-            if fan == "ON":
+        # Use stage to determine if idle
+        if state.is_idle:
+            # Stage is 0, so we're idle
+            if state.fan_mode == "ON":
                 return HVACAction.FAN
             return HVACAction.IDLE
+        
+        # Stage >= 1, actively running
+        if state.operating_status == "HEAT":
+            return HVACAction.HEATING
+        elif state.operating_status == "COOL":
+            return HVACAction.COOLING
         
         return HVACAction.IDLE
 
@@ -183,6 +185,14 @@ class NetXTCPClimate(CoordinatorEntity[NetXTCPDataUpdateCoordinator], ClimateEnt
         if self.coordinator.data:
             return self.coordinator.data.fan_mode.lower() if self.coordinator.data.fan_mode else "auto"
         return "auto"
+
+    @property
+    def preset_mode(self) -> str | None:
+        """Return the current preset mode (humidity relay mode)."""
+        if self.coordinator.data and self.coordinator.data.relay1_mode:
+            mode = self.coordinator.data.relay1_mode.upper()
+            return RELAY_TO_PRESET.get(mode, PRESET_NONE)
+        return PRESET_NONE
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -195,15 +205,27 @@ class NetXTCPClimate(CoordinatorEntity[NetXTCPDataUpdateCoordinator], ClimateEnt
             attrs["override_active"] = state.override_active
             attrs["recovery_active"] = state.recovery_active
             attrs["operating_status"] = state.operating_status
+            attrs["stage"] = state.stage
+            attrs["is_idle"] = state.is_idle
             
-            if state.stage:
-                attrs["stage"] = state.stage
             if state.event:
                 attrs["event"] = state.event
             if state.outdoor_temp is not None:
                 attrs["outdoor_temperature"] = state.outdoor_temp
-            if state.last_error:
-                attrs["last_error"] = state.last_error
+            if state.relay_state:
+                attrs["relay_state"] = state.relay_state
+            if state.co2_level is not None:
+                attrs["co2_level"] = state.co2_level
+            
+            # Humidity settings
+            if state.hum_setpoint is not None:
+                attrs["humidify_setpoint"] = state.hum_setpoint
+                attrs["humidify_variance"] = state.hum_variance
+                attrs["humidify_mode"] = "Independent" if state.hum_control_mode == "IH" else "With Heating"
+            if state.dehum_setpoint is not None:
+                attrs["dehumidify_setpoint"] = state.dehum_setpoint
+                attrs["dehumidify_variance"] = state.dehum_variance
+                attrs["dehumidify_mode"] = "Independent" if state.dehum_control_mode == "IC" else "With Cooling"
         
         return attrs
 
@@ -229,10 +251,15 @@ class NetXTCPClimate(CoordinatorEntity[NetXTCPDataUpdateCoordinator], ClimateEnt
         await self._api.async_set_fan_mode(fan_mode.upper())
         await self.coordinator.async_request_refresh()
 
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Set new preset mode (humidity relay mode)."""
+        relay_mode = PRESET_TO_RELAY.get(preset_mode, "OFF")
+        await self._api.async_set_relay_mode(relay_mode)
+        await self.coordinator.async_request_refresh()
+
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
         if ATTR_TEMPERATURE in kwargs:
-            # Single temperature - set based on current mode
             temp = int(kwargs[ATTR_TEMPERATURE])
             mode = self.hvac_mode
             
@@ -241,11 +268,9 @@ class NetXTCPClimate(CoordinatorEntity[NetXTCPDataUpdateCoordinator], ClimateEnt
             elif mode == HVACMode.COOL:
                 await self._api.async_set_cool_setpoint(temp)
             else:
-                # For AUTO or other modes, set both (maintaining deadband)
                 await self._api.async_set_heat_setpoint(temp)
-                await self._api.async_set_cool_setpoint(temp + 3)  # Default 3° deadband
+                await self._api.async_set_cool_setpoint(temp + 3)
         
-        # Handle temperature range (for AUTO mode)
         if "target_temp_low" in kwargs:
             await self._api.async_set_heat_setpoint(int(kwargs["target_temp_low"]))
         

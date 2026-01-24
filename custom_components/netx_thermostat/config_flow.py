@@ -12,19 +12,16 @@ from .api import NetXThermostatAPI
 _LOGGER = logging.getLogger(__name__)
 
 
-class NetXThermostatTCPConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class NetXThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for NetX Thermostat."""
 
     VERSION = 1
 
-    async def async_step_user(
-        self, user_input: dict | None = None
-    ) -> FlowResult:
+    async def async_step_user(self, user_input: dict | None = None) -> FlowResult:
         """Handle the initial step."""
         errors = {}
 
         if user_input is not None:
-            # Test connection
             api = NetXThermostatAPI(
                 host=user_input[CONF_HOST],
                 username=user_input[CONF_USERNAME],
@@ -34,11 +31,8 @@ class NetXThermostatTCPConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             
             try:
                 if await api.test_connection():
-                    # Create unique ID from host
                     await self.async_set_unique_id(user_input[CONF_HOST])
                     self._abort_if_unique_id_configured()
-
-                    # Clean up test connection
                     await api.disconnect()
 
                     return self.async_create_entry(
@@ -47,14 +41,13 @@ class NetXThermostatTCPConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
                 else:
                     errors["base"] = "cannot_connect"
-                    _LOGGER.error("Connection test failed: %s", api.state.last_error)
+                    _LOGGER.error("Connection failed: %s", api.state.last_error)
             except Exception as err:
                 errors["base"] = "cannot_connect"
                 _LOGGER.error("Connection error: %s", err)
             finally:
                 await api.disconnect()
 
-        # Show form
         data_schema = vol.Schema(
             {
                 vol.Required(CONF_HOST): str,
