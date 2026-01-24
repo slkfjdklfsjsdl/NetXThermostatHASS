@@ -2,18 +2,19 @@
   "config": {
     "step": {
       "user": {
-        "title": "NetX Thermostat Setup",
-        "description": "Enter your NetX Thermostat connection details.",
+        "title": "NetX Thermostat",
+        "description": "Connect to your NetX Thermostat.",
         "data": {
           "host": "IP Address",
           "username": "Username",
           "password": "Password",
+          "port": "Port",
           "device_name": "Device Name"
         }
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to the thermostat. Please check the IP address and credentials."
+      "cannot_connect": "Unable to connect to the thermostat. Please check the IP address, port, and credentials."
     },
     "abort": {
       "already_configured": "This thermostat is already configured."
@@ -26,58 +27,59 @@
       }
     },
     "sensor": {
-      "co2_level": {
-        "name": "CO2 Level"
-      },
-      "outdoor": {
+      "outdoor_temperature": {
         "name": "Outdoor Temperature"
       },
-      "schedule_status": {
-        "name": "Schedule Status"
+      "humidity": {
+        "name": "Humidity"
       },
-      "control_mode": {
-        "name": "Control Mode"
+      "operation_mode": {
+        "name": "Operation Mode"
       },
-      "todays_schedule": {
-        "name": "Today's Schedule"
+      "operating_status": {
+        "name": "Operating Status"
+      },
+      "stage": {
+        "name": "Stage"
+      },
+      "relay_state": {
+        "name": "Relay State"
+      },
+      "hum_mode": {
+        "name": "Humidification Mode"
+      },
+      "dehum_mode": {
+        "name": "Dehumidification Mode"
       }
     },
     "switch": {
       "fan": {
         "name": "Fan"
       },
-      "dehum_independent": {
-        "name": "Dehumidify Independent Mode"
-      },
       "hum_independent": {
         "name": "Humidify Independent Mode"
       },
-      "aux_relay": {
-        "name": "Aux Relay"
-      }
-    },
-    "select": {
-      "humidity_relay_mode": {
-        "name": "Humidity Relay Mode"
+      "dehum_independent": {
+        "name": "Dehumidify Independent Mode"
       }
     },
     "number": {
-      "dehum_setpoint": {
-        "name": "Dehumidify Above"
-      },
-      "dehum_variance": {
-        "name": "Dehumidify Variance"
-      },
       "hum_setpoint": {
         "name": "Humidify Below"
       },
       "hum_variance": {
         "name": "Humidify Variance"
+      },
+      "dehum_setpoint": {
+        "name": "Dehumidify Above"
+      },
+      "dehum_variance": {
+        "name": "Dehumidify Variance"
       }
     },
-    "button": {
-      "restart": {
-        "name": "Restart"
+    "select": {
+      "relay_mode": {
+        "name": "Humidity Relay Mode"
       }
     }
   }

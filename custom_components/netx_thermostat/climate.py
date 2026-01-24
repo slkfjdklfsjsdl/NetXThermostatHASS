@@ -1,6 +1,6 @@
 """Climate platform for NetX Thermostat integration."""
 import logging
-import asyncio
+from typing import Any
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -21,9 +21,9 @@ from .const import (
     DOMAIN,
     MIN_TEMP,
     MAX_TEMP,
-    ENDPOINT_INDEX_HTM,
 )
-from .coordinator import NetXDataUpdateCoordinator
+from .coordinator import NetXTCPDataUpdateCoordinator
+from .api import NetXThermostatAPI
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,247 +36,220 @@ async def async_setup_entry(
     """Set up the NetX Thermostat climate platform."""
     data = hass.data[DOMAIN][config_entry.entry_id]
     coordinator = data["coordinator"]
+    api = data["api"]
 
-    async_add_entities([NetXClimate(coordinator, config_entry)])
+    async_add_entities([NetXTCPClimate(coordinator, api, config_entry)])
 
 
-class NetXClimate(CoordinatorEntity, ClimateEntity):
+class NetXTCPClimate(CoordinatorEntity[NetXTCPDataUpdateCoordinator], ClimateEntity):
     """Representation of a NetX Thermostat."""
 
     _attr_has_entity_name = True
     _attr_name = None
-    _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        | ClimateEntityFeature.FAN_MODE
     )
     _attr_hvac_modes = [
         HVACMode.OFF, 
         HVACMode.HEAT, 
         HVACMode.COOL, 
-        HVACMode.HEAT_COOL,  # AUTO mode
+        HVACMode.HEAT_COOL,  # AUTO
         HVACMode.FAN_ONLY,
     ]
+    _attr_fan_modes = ["auto", "on"]
     _attr_min_temp = MIN_TEMP
     _attr_max_temp = MAX_TEMP
 
     def __init__(
         self, 
-        coordinator: NetXDataUpdateCoordinator, 
-        config_entry: ConfigEntry
+        coordinator: NetXTCPDataUpdateCoordinator,
+        api: NetXThermostatAPI,
+        config_entry: ConfigEntry,
     ) -> None:
-        """Initialize the thermostat."""
+        """Initialize the climate entity."""
         super().__init__(coordinator)
+        self._api = api
         self._attr_unique_id = f"{config_entry.entry_id}_climate"
         
-        # Use custom device name if provided, otherwise use default
         device_name = config_entry.data.get("device_name", "NetX Thermostat")
         
         self._attr_device_info = {
             "identifiers": {(DOMAIN, config_entry.entry_id)},
             "name": device_name,
             "manufacturer": "NetX",
-            "model": "Thermostat",
-            "suggested_area": "Living Room",
+            "model": "Network Thermostat",
         }
-        self._attr_icon = "mdi:thermostat"
 
     @property
-    def hvac_action(self) -> HVACAction:
-        """Return the current running hvac operation."""
-        sysstat = self.coordinator.data.get("sysstat", "IDLE")
-        fan = self.coordinator.data.get("curfan", "AUTO")
-        
-        # Check system status for active heating/cooling
-        if "HEAT" in sysstat.upper():
-            return HVACAction.HEATING
-        elif "COOL" in sysstat.upper():
-            return HVACAction.COOLING
-        elif fan == "ON" and sysstat == "IDLE":
-            return HVACAction.FAN
-        elif sysstat == "IDLE":
-            return HVACAction.IDLE
-        else:
-            return HVACAction.IDLE
+    def temperature_unit(self) -> str:
+        """Return the unit of measurement."""
+        if self.coordinator.data and self.coordinator.data.temp_scale == "C":
+            return UnitOfTemperature.CELSIUS
+        return UnitOfTemperature.FAHRENHEIT
 
     @property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
-        temp = self.coordinator.data.get("curtemp")
-        return float(temp) if temp and temp != "--" else None
+        if self.coordinator.data:
+            return self.coordinator.data.indoor_temp
+        return None
 
     @property
     def current_humidity(self) -> int | None:
         """Return the current humidity."""
-        humidity = self.coordinator.data.get("humidity")
-        if humidity and humidity != "--":
-            try:
-                return int(humidity)
-            except (ValueError, TypeError):
-                return None
+        if self.coordinator.data and self.coordinator.data.humidity:
+            # Only return humidity if it's a valid reading (not 0 which often means no sensor)
+            humidity = self.coordinator.data.humidity
+            return humidity if humidity > 0 else None
         return None
 
     @property
     def target_temperature(self) -> float | None:
-        """Return the temperature we try to reach."""
+        """Return the temperature we try to reach (for single setpoint modes)."""
+        if not self.coordinator.data:
+            return None
+        
         mode = self.hvac_mode
         if mode == HVACMode.HEAT:
-            temp = self.coordinator.data.get("sptheat")
+            return self.coordinator.data.heat_setpoint
         elif mode == HVACMode.COOL:
-            temp = self.coordinator.data.get("sptcool")
-        elif mode == HVACMode.HEAT_COOL:
-            # In AUTO mode, return None to indicate range should be used
-            return None
-        else:
-            return None
-        return float(temp) if temp and temp != "--" else None
+            return self.coordinator.data.cool_setpoint
+        # For AUTO/HEAT_COOL, return None to use range instead
+        return None
 
     @property
     def target_temperature_high(self) -> float | None:
-        """Return the highbound target temperature."""
-        temp = self.coordinator.data.get("sptcool")
-        return float(temp) if temp and temp != "--" else None
+        """Return the upper bound target temperature (cooling setpoint)."""
+        if self.coordinator.data:
+            return self.coordinator.data.cool_setpoint
+        return None
 
     @property
     def target_temperature_low(self) -> float | None:
-        """Return the lowbound target temperature."""
-        temp = self.coordinator.data.get("sptheat")
-        return float(temp) if temp and temp != "--" else None
+        """Return the lower bound target temperature (heating setpoint)."""
+        if self.coordinator.data:
+            return self.coordinator.data.heat_setpoint
+        return None
 
     @property
     def hvac_mode(self) -> HVACMode:
-        """Return current operation mode."""
-        mode = self.coordinator.data.get("curmode", "OFF")
-        fan = self.coordinator.data.get("curfan", "AUTO")
+        """Return current HVAC mode."""
+        if not self.coordinator.data:
+            return HVACMode.OFF
         
-        # If mode is OFF but fan is ON, we're in fan-only mode
-        if mode == "OFF" and fan == "ON":
-            return HVACMode.FAN_ONLY
+        mode = self.coordinator.data.hvac_mode
+        fan = self.coordinator.data.fan_mode
+        
+        if mode == "OFF":
+            # Check if it's fan-only mode
+            if fan == "ON":
+                return HVACMode.FAN_ONLY
+            return HVACMode.OFF
         elif mode == "HEAT":
             return HVACMode.HEAT
         elif mode == "COOL":
             return HVACMode.COOL
         elif mode == "AUTO":
             return HVACMode.HEAT_COOL
-        else:
-            return HVACMode.OFF
+        
+        return HVACMode.OFF
 
     @property
-    def extra_state_attributes(self) -> dict:
+    def hvac_action(self) -> HVACAction | None:
+        """Return the current running hvac operation."""
+        if not self.coordinator.data:
+            return None
+        
+        status = self.coordinator.data.operating_status
+        fan = self.coordinator.data.fan_mode
+        
+        if status == "HEAT":
+            return HVACAction.HEATING
+        elif status == "COOL":
+            return HVACAction.COOLING
+        elif status in ("OFF", "IDLE", None):
+            # Check if fan is running
+            if fan == "ON":
+                return HVACAction.FAN
+            return HVACAction.IDLE
+        
+        return HVACAction.IDLE
+
+    @property
+    def fan_mode(self) -> str | None:
+        """Return the current fan mode."""
+        if self.coordinator.data:
+            return self.coordinator.data.fan_mode.lower() if self.coordinator.data.fan_mode else "auto"
+        return "auto"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes."""
         attrs = {}
-        
-        # Add system status
-        sysstat = self.coordinator.data.get("sysstat")
-        if sysstat:
-            attrs["system_status"] = sysstat
-        
-        # Add schedule status
-        schedstat = self.coordinator.data.get("schedstat")
-        if schedstat:
-            attrs["schedule_status"] = schedstat
+        if self.coordinator.data:
+            state = self.coordinator.data
+            attrs["operation_mode"] = state.operation_mode
+            attrs["is_manual_mode"] = state.is_manual_mode
+            attrs["override_active"] = state.override_active
+            attrs["recovery_active"] = state.recovery_active
+            attrs["operating_status"] = state.operating_status
             
-        # Add manual/schedule mode
-        manual_program = self.coordinator.data.get("manual_program")
-        if manual_program is not None:
-            attrs["manual_mode"] = manual_program == "1"
+            if state.stage:
+                attrs["stage"] = state.stage
+            if state.event:
+                attrs["event"] = state.event
+            if state.outdoor_temp is not None:
+                attrs["outdoor_temperature"] = state.outdoor_temp
+            if state.last_error:
+                attrs["last_error"] = state.last_error
         
-        # Add CO2 data if available
-        if self.coordinator.data.get("co2_level"):
-            attrs["co2_level"] = self.coordinator.data.get("co2_level")
-        if self.coordinator.data.get("co2_peak_level"):
-            attrs["co2_peak_level"] = self.coordinator.data.get("co2_peak_level")
-        if self.coordinator.data.get("co2_alert_level"):
-            attrs["co2_alert_level"] = self.coordinator.data.get("co2_alert_level")
-        
-        # Add fan status
-        fan = self.coordinator.data.get("curfan")
-        if fan:
-            attrs["fan_mode"] = fan
-            
-        # Add override status
-        isoverride = self.coordinator.data.get("isoverride")
-        if isoverride is not None:
-            attrs["override_active"] = isoverride == "1"
-            
         return attrs
-
-    async def async_set_temperature(self, **kwargs) -> None:
-        """Set new target temperature."""
-        if ATTR_TEMPERATURE in kwargs:
-            temp = kwargs[ATTR_TEMPERATURE]
-            
-            # Clamp temperature to valid range
-            temp = max(MIN_TEMP, min(MAX_TEMP, temp))
-            
-            mode = self.hvac_mode
-            if mode == HVACMode.HEAT:
-                await self._set_heat_setpoint(temp)
-            elif mode == HVACMode.COOL:
-                await self._set_cool_setpoint(temp)
-            elif mode == HVACMode.HEAT_COOL:
-                # In AUTO mode, set both if only one temp provided
-                # This maintains the current deadband
-                pass
-        
-        # Handle range setting (for AUTO mode)
-        if "target_temp_low" in kwargs:
-            temp_low = max(MIN_TEMP, min(MAX_TEMP, kwargs["target_temp_low"]))
-            await self._set_heat_setpoint(temp_low)
-        
-        if "target_temp_high" in kwargs:
-            temp_high = max(MIN_TEMP, min(MAX_TEMP, kwargs["target_temp_high"]))
-            await self._set_cool_setpoint(temp_high)
-        
-        await asyncio.sleep(1)
-        await self.coordinator.async_request_refresh()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
-        if hvac_mode == HVACMode.HEAT:
-            await self._set_mode("HEAT")
-            await self._set_fan("AUTO")
+        if hvac_mode == HVACMode.OFF:
+            await self._api.async_set_hvac_mode("OFF")
+            await self._api.async_set_fan_mode("AUTO")
+        elif hvac_mode == HVACMode.HEAT:
+            await self._api.async_set_hvac_mode("HEAT")
         elif hvac_mode == HVACMode.COOL:
-            await self._set_mode("COOL")
-            await self._set_fan("AUTO")
+            await self._api.async_set_hvac_mode("COOL")
         elif hvac_mode == HVACMode.HEAT_COOL:
-            await self._set_mode("AUTO")
-            await self._set_fan("AUTO")
+            await self._api.async_set_hvac_mode("AUTO")
         elif hvac_mode == HVACMode.FAN_ONLY:
-            await self._set_fan_only()
-        elif hvac_mode == HVACMode.OFF:
-            await self._set_mode("OFF")
-            await self._set_fan("AUTO")
+            await self._api.async_set_hvac_mode("OFF")
+            await self._api.async_set_fan_mode("ON")
         
-        await asyncio.sleep(1)
         await self.coordinator.async_request_refresh()
 
-    async def _set_heat_setpoint(self, temperature: float) -> None:
-        """Set heating setpoint."""
-        data = {"sp_heat": int(temperature), "update": "Update"}
-        await self.coordinator.async_send_command(ENDPOINT_INDEX_HTM, data)
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        """Set new target fan mode."""
+        await self._api.async_set_fan_mode(fan_mode.upper())
+        await self.coordinator.async_request_refresh()
 
-    async def _set_cool_setpoint(self, temperature: float) -> None:
-        """Set cooling setpoint."""
-        data = {"sp_cool": int(temperature), "update": "Update"}
-        await self.coordinator.async_send_command(ENDPOINT_INDEX_HTM, data)
-
-    async def _set_mode(self, mode: str) -> None:
-        """Set thermostat mode."""
-        data = {"mode": mode, "update": "Update"}
-        await self.coordinator.async_send_command(ENDPOINT_INDEX_HTM, data)
-
-    async def _set_fan_only(self) -> None:
-        """Set fan-only mode."""
-        # First turn off heating/cooling mode
-        await self._set_mode("OFF")
-        await asyncio.sleep(0.5)  # Small delay between commands
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        """Set new target temperature."""
+        if ATTR_TEMPERATURE in kwargs:
+            # Single temperature - set based on current mode
+            temp = int(kwargs[ATTR_TEMPERATURE])
+            mode = self.hvac_mode
+            
+            if mode == HVACMode.HEAT:
+                await self._api.async_set_heat_setpoint(temp)
+            elif mode == HVACMode.COOL:
+                await self._api.async_set_cool_setpoint(temp)
+            else:
+                # For AUTO or other modes, set both (maintaining deadband)
+                await self._api.async_set_heat_setpoint(temp)
+                await self._api.async_set_cool_setpoint(temp + 3)  # Default 3° deadband
         
-        # Then turn on the fan
-        data = {"fan": "ON", "update": "Update"}
-        await self.coordinator.async_send_command(ENDPOINT_INDEX_HTM, data)
-
-    async def _set_fan(self, fan_mode: str) -> None:
-        """Set fan mode (ON or AUTO)."""
-        data = {"fan": fan_mode, "update": "Update"}
-        await self.coordinator.async_send_command(ENDPOINT_INDEX_HTM, data)
+        # Handle temperature range (for AUTO mode)
+        if "target_temp_low" in kwargs:
+            await self._api.async_set_heat_setpoint(int(kwargs["target_temp_low"]))
+        
+        if "target_temp_high" in kwargs:
+            await self._api.async_set_cool_setpoint(int(kwargs["target_temp_high"]))
+        
+        await self.coordinator.async_request_refresh()
