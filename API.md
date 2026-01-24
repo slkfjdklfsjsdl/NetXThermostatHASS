@@ -48,7 +48,7 @@ Login response: OK,USER,NO
 
 RTS1 (temp scale): RTS1:CELSIUS
 
-RAS1 (all states): RAS1:68,NA,HEAT,FAN AUTO,NO,NO,25,20,HEAT,1,NONE
+RAS1 (all states): RAS1:25,NA,HEAT,FAN AUTO,NO,NO,25,20,HEAT,1,NONE
 
 RRHS1 (humidity): RRHS1:0
 
