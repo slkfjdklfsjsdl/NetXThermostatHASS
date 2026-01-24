@@ -89,8 +89,6 @@ RAS1:70,NA,HEAT,FAN AUTO,NO,NO,77,68,HEAT,1,NONE
 
 **Response:** `RRHS1:{humidity_percent}`
 
-**Note:** Humidity and CO2 are grabbed via HTTP requests instead.
-
 ### RNS1 - Read Operation Mode (Manual/Schedule)
 
 **Command:** `RNS1`
@@ -296,7 +294,7 @@ WMDHS1DWC,60,3  → With Cooling, 60%, ±3%
 
 2. **Polling:** Unlike push notifications, you must poll for state changes. A 10-30 second interval is recommended.
 
-3. **Humidity Sensor:** The `RRHS1` command may return `0` if the humidity sensor is connected to the CO2 module rather than directly to the thermostat. In this case, use the HTTP API (`/co2.json`) to read humidity.
+3. **Humidity Sensor:** Humidity readings are not available via the TCP API. Use the HTTP API (`/index.xml`) to read humidity.
 
 4. **CO2 Sensor:** CO2 readings are not available via TCP API. Use the HTTP API (`/co2.json`) for CO2 data.
 
@@ -310,7 +308,7 @@ WMDHS1DWC,60,3  → With Cooling, 60%, ±3%
 
 ---
 
-## HTTP API Endpoints (For Reference)
+## HTTP Endpoints (For Reference)
 
 The thermostat also exposes an HTTP API for additional features not available via TCP:
 
@@ -320,6 +318,53 @@ The thermostat also exposes an HTTP API for additional features not available vi
 | `/co2.json` | CO2 and humidity sensor data |
 | `/schedule.xml` | Weekly schedule data |
 | `/confighumidity.htm` | Humidity configuration |
+
+### /index.xml
+
+Returns XML with thermostat status including humidity:
+
+```xml
+<?xml version="1.0"?>
+<thermostat>
+  <temperature>70</temperature>
+  <humidity>25</humidity>
+  <mode>HEAT</mode>
+  ...
+</thermostat>
+```
+
+The `<humidity>` element contains the current indoor humidity percentage.
+
+### /co2.json
+
+Returns JSON with CO2 sensor data (if CO2 module installed):
+
+```json
+{
+  "co2": {
+    "type": "MODULE",
+    "valid": "true",
+    "in_alert": "false",
+    "level": "635",
+    "peak_level": "1067",
+    "peak_reset": "MANUAL",
+    "alert_level": "1100",
+    "display": "CURRENT",
+    "relay_high": "false",
+    "relay_failure": "false"
+  }
+}
+```
+
+**Fields:**
+- `level`: Current CO2 level in PPM (typical range: 400-2000)
+- `peak_level`: Peak CO2 level since last reset
+- `alert_level`: Threshold for CO2 alert
+- `in_alert`: Whether currently in alert state ("true"/"false")
+- `valid`: Whether the sensor data is valid ("true"/"false")
+- `peak_reset`: When peak resets ("MANUAL" or time-based)
+
+**Note:** Returns 404 if no CO2 module is installed. All numeric values are strings.
 
 ---
 
